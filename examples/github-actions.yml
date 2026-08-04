@@ -1,0 +1,27 @@
+name: AI dependency lifeline
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 9 * * 1"
+
+jobs:
+  lifeline:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Scan AI dependencies
+        run: npx --yes @lapointelabs/lifeline scan . --format sarif --output lifeline.sarif --fail-on critical
+      - name: Upload findings
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: lifeline.sarif
