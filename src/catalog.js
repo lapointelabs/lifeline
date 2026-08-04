@@ -1,9 +1,35 @@
 const DEPRECATIONS_URL = "https://developers.openai.com/api/docs/deprecations";
 const ASSISTANTS_MIGRATION_URL =
   "https://developers.openai.com/api/docs/assistants/migration";
+const ANTHROPIC_DEPRECATIONS_URL =
+  "https://platform.claude.com/docs/en/about-claude/model-deprecations";
+const ANTHROPIC_MIGRATION_URL =
+  "https://platform.claude.com/docs/en/about-claude/models/migration-guide";
+const GOOGLE_DEPRECATIONS_URL =
+  "https://ai.google.dev/gemini-api/docs/deprecations";
 
-export const CATALOG_VERSION = "2026.08.04.1";
+export const CATALOG_VERSION = "2026.08.04.2";
 export const CATALOG_UPDATED_AT = "2026-08-04";
+
+export const PROVIDERS = Object.freeze({
+  openai: Object.freeze({
+    id: "openai",
+    name: "OpenAI",
+    sourceUrl: DEPRECATIONS_URL,
+  }),
+  anthropic: Object.freeze({
+    id: "anthropic",
+    name: "Anthropic",
+    sourceUrl: ANTHROPIC_DEPRECATIONS_URL,
+  }),
+  google: Object.freeze({
+    id: "google",
+    name: "Google Gemini",
+    sourceUrl: GOOGLE_DEPRECATIONS_URL,
+  }),
+});
+
+export const PROVIDER_IDS = Object.freeze(Object.keys(PROVIDERS));
 
 function regex(source, flags = "gi") {
   return { source, flags };
@@ -28,19 +54,32 @@ function modelMatcher(identifier) {
   );
 }
 
-function modelRule({ identifier, shutdownDate, replacement, note }) {
+function modelRule({
+  provider = "openai",
+  identifier,
+  shutdownDate,
+  replacement,
+  note,
+  sourceUrl,
+  migrationUrl,
+  deadlineBasis = "scheduled",
+}) {
+  const providerDefinition = PROVIDERS[provider];
+  if (!providerDefinition) throw new Error(`unknown catalog provider: ${provider}`);
+
   return {
-    id: `openai-model-${identifier.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase()}`,
-    provider: "openai",
+    id: `${provider}-model-${identifier.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase()}`,
+    provider,
     category: "model",
-    title: `OpenAI model ${identifier}`,
+    title: `${providerDefinition.name} model ${identifier}`,
     shutdownDate,
+    deadlineBasis,
     replacement,
     guidance:
       note ??
-      `Replace ${identifier}, then run behavioral and cost regression tests before changing production traffic.`,
-    sourceUrl: DEPRECATIONS_URL,
-    migrationUrl: DEPRECATIONS_URL,
+      `Replace ${identifier}, then run behavioral, latency, and cost regression tests before changing production traffic.`,
+    sourceUrl: sourceUrl ?? providerDefinition.sourceUrl,
+    migrationUrl: migrationUrl ?? sourceUrl ?? providerDefinition.sourceUrl,
     matchers: [modelMatcher(identifier)],
     detectable: true,
   };
@@ -133,6 +172,20 @@ const platformRules = [
     matchers: [],
     detectable: false,
   },
+  {
+    id: "openai-self-serve-fine-tuning-training",
+    provider: "openai",
+    category: "platform",
+    title: "OpenAI self-serve fine-tuning job creation",
+    shutdownDate: "2027-01-06",
+    replacement: "Complete training migrations before job creation closes",
+    guidance:
+      "Inventory training pipelines and create replacement fine-tuning jobs before self-serve job creation becomes unavailable. Existing inference follows each base model's retirement date.",
+    sourceUrl: DEPRECATIONS_URL,
+    migrationUrl: DEPRECATIONS_URL,
+    matchers: [],
+    detectable: false,
+  },
 ];
 
 const modelRows = [
@@ -141,12 +194,25 @@ const modelRows = [
     replacement: "gpt-5.6-terra",
     identifiers: [
       "computer-use-preview-2025-03-11",
+      "computer-use-preview",
       "gpt-4o-mini-search-preview-2025-03-11",
-      "gpt-4o-mini-tts-2025-03-20",
       "gpt-4o-search-preview-2025-03-11",
-      "gpt-audio-mini-2025-10-06",
-      "gpt-realtime-mini-2025-10-06",
     ],
+  },
+  {
+    shutdownDate: "2026-07-23",
+    replacement: "gpt-4o-mini-tts-2025-12-15",
+    identifiers: ["gpt-4o-mini-tts-2025-03-20"],
+  },
+  {
+    shutdownDate: "2026-07-23",
+    replacement: "gpt-audio-1.5",
+    identifiers: ["gpt-audio-mini-2025-10-06"],
+  },
+  {
+    shutdownDate: "2026-07-23",
+    replacement: "gpt-realtime-2.1-mini",
+    identifiers: ["gpt-realtime-mini-2025-10-06"],
   },
   {
     shutdownDate: "2026-07-23",
@@ -159,7 +225,9 @@ const modelRows = [
       "gpt-5.1-codex-max",
       "gpt-5.2-codex",
       "o3-deep-research-2025-06-26",
+      "o3-deep-research",
       "o4-mini-deep-research-2025-06-26",
+      "o4-mini-deep-research",
     ],
   },
   {
@@ -304,30 +372,303 @@ const modelRows = [
   },
 ];
 
+const anthropicModelRows = [
+  {
+    shutdownDate: "2024-11-06",
+    replacement: "claude-haiku-4-5-20251001",
+    identifiers: [
+      "claude-1.0",
+      "claude-1.1",
+      "claude-1.2",
+      "claude-1.3",
+      "claude-instant-1.0",
+      "claude-instant-1.1",
+      "claude-instant-1.2",
+    ],
+  },
+  {
+    shutdownDate: "2025-07-21",
+    replacement: "claude-opus-4-8",
+    identifiers: ["claude-2.0", "claude-2.1"],
+  },
+  {
+    shutdownDate: "2025-07-21",
+    replacement: "claude-sonnet-4-6",
+    identifiers: ["claude-3-sonnet-20240229"],
+  },
+  {
+    shutdownDate: "2025-10-28",
+    replacement: "claude-sonnet-4-6",
+    identifiers: ["claude-3-5-sonnet-20240620", "claude-3-5-sonnet-20241022"],
+  },
+  {
+    shutdownDate: "2026-01-05",
+    replacement: "claude-opus-4-8",
+    identifiers: ["claude-3-opus-20240229"],
+  },
+  {
+    shutdownDate: "2026-02-19",
+    replacement: "claude-haiku-4-5-20251001",
+    identifiers: ["claude-3-5-haiku-20241022"],
+  },
+  {
+    shutdownDate: "2026-02-19",
+    replacement: "claude-sonnet-4-6",
+    identifiers: ["claude-3-7-sonnet-20250219"],
+  },
+  {
+    shutdownDate: "2026-04-20",
+    replacement: "claude-haiku-4-5-20251001",
+    identifiers: ["claude-3-haiku-20240307"],
+  },
+  {
+    shutdownDate: "2026-06-15",
+    replacement: "claude-sonnet-4-6",
+    identifiers: ["claude-sonnet-4-20250514"],
+  },
+  {
+    shutdownDate: "2026-06-15",
+    replacement: "claude-opus-4-8",
+    identifiers: ["claude-opus-4-20250514"],
+  },
+  {
+    shutdownDate: "2026-08-05",
+    replacement: "claude-opus-4-8",
+    identifiers: ["claude-opus-4-1-20250805"],
+  },
+];
+
+const googleModelRows = [
+  {
+    shutdownDate: "2025-10-30",
+    replacement: "gemini-embedding-2",
+    identifiers: [
+      "embedding-001",
+      "embedding-gecko-001",
+      "gemini-embedding-exp",
+      "gemini-embedding-exp-03-07",
+    ],
+  },
+  {
+    shutdownDate: "2025-11-10",
+    replacement: "imagen-4.0-generate-001",
+    identifiers: ["imagen-3.0-generate-002"],
+  },
+  {
+    shutdownDate: "2025-11-12",
+    replacement: "veo-3.1-generate-preview",
+    identifiers: ["veo-3.0-generate-preview"],
+  },
+  {
+    shutdownDate: "2025-11-12",
+    replacement: "veo-3.1-fast-generate-preview",
+    identifiers: ["veo-3.0-fast-generate-preview"],
+  },
+  {
+    shutdownDate: "2025-11-14",
+    replacement: "gemini-2.5-flash-image",
+    identifiers: ["gemini-2.0-flash-preview-image-generation"],
+  },
+  {
+    shutdownDate: "2025-11-18",
+    replacement: "gemini-3.6-flash",
+    identifiers: ["gemini-2.5-flash-preview-05-20"],
+  },
+  {
+    shutdownDate: "2025-12-02",
+    replacement: "gemini-3.1-pro-preview",
+    identifiers: [
+      "gemini-2.5-pro-preview-03-25",
+      "gemini-2.5-pro-preview-05-06",
+      "gemini-2.5-pro-preview-06-05",
+    ],
+  },
+  {
+    shutdownDate: "2025-12-09",
+    replacement: "gemini-2.5-flash-lite",
+    identifiers: ["gemini-2.0-flash-lite-preview", "gemini-2.0-flash-lite-preview-02-05"],
+  },
+  {
+    shutdownDate: "2025-12-09",
+    replacement: "gemini-3.1-flash-live-preview",
+    identifiers: ["gemini-2.0-flash-live-001", "gemini-live-2.5-flash-preview"],
+  },
+  {
+    shutdownDate: "2026-01-14",
+    replacement: "gemini-embedding-2",
+    identifiers: ["text-embedding-004"],
+  },
+  {
+    shutdownDate: "2026-01-15",
+    replacement: "gemini-2.5-flash-image",
+    identifiers: ["gemini-2.5-flash-image-preview"],
+  },
+  {
+    shutdownDate: "2026-02-17",
+    replacement: "gemini-3.6-flash",
+    identifiers: ["gemini-2.5-flash-preview-09-25"],
+  },
+  {
+    shutdownDate: "2026-02-17",
+    replacement: "imagen-4.0-generate-001",
+    identifiers: ["imagen-4.0-generate-preview-06-06"],
+  },
+  {
+    shutdownDate: "2026-02-17",
+    replacement: "imagen-4.0-ultra-generate-001",
+    identifiers: ["imagen-4.0-ultra-generate-preview-06-06"],
+  },
+  {
+    shutdownDate: "2026-03-09",
+    replacement: "gemini-3.1-pro-preview",
+    identifiers: ["gemini-3-pro-preview"],
+  },
+  {
+    shutdownDate: "2026-03-31",
+    replacement: "gemini-3.1-flash-lite",
+    identifiers: ["gemini-2.5-flash-lite-preview-09-2025"],
+  },
+  {
+    shutdownDate: "2026-04-30",
+    replacement: "gemini-robotics-er-1.6-preview",
+    identifiers: ["gemini-robotics-er-1.5-preview"],
+  },
+  {
+    shutdownDate: "2026-05-25",
+    replacement: "gemini-3.1-flash-lite",
+    identifiers: ["gemini-3.1-flash-lite-preview"],
+  },
+  {
+    shutdownDate: "2026-06-01",
+    replacement: "gemini-3.6-flash",
+    identifiers: ["gemini-2.0-flash", "gemini-2.0-flash-001"],
+  },
+  {
+    shutdownDate: "2026-06-01",
+    replacement: "gemini-3.1-flash-lite",
+    identifiers: ["gemini-2.0-flash-lite", "gemini-2.0-flash-lite-001"],
+  },
+  {
+    shutdownDate: "2026-06-25",
+    replacement: "gemini-3.1-flash-image",
+    identifiers: ["gemini-3.1-flash-image-preview"],
+  },
+  {
+    shutdownDate: "2026-06-25",
+    replacement: "gemini-3-pro-image",
+    identifiers: ["gemini-3-pro-image-preview"],
+  },
+  {
+    shutdownDate: "2026-06-30",
+    replacement: "veo-3.1-generate-preview",
+    identifiers: ["veo-3.0-generate-001", "veo-2.0-generate-001"],
+  },
+  {
+    shutdownDate: "2026-06-30",
+    replacement: "veo-3.1-fast-generate-preview",
+    identifiers: ["veo-3.0-fast-generate-001"],
+  },
+  {
+    shutdownDate: "2026-08-10",
+    replacement: "gemini-embedding-2",
+    identifiers: ["embedding-2-preview"],
+  },
+  {
+    shutdownDate: "2026-08-17",
+    replacement: "gemini-3.1-flash-image",
+    identifiers: [
+      "imagen-4.0-generate-001",
+      "imagen-4.0-ultra-generate-001",
+      "imagen-4.0-fast-generate-001",
+    ],
+  },
+  {
+    shutdownDate: "2026-08-31",
+    replacement: "gemini-robotics-er-2-preview",
+    identifiers: ["gemini-robotics-er-1.6-preview"],
+  },
+  {
+    shutdownDate: "2026-10-02",
+    replacement: "gemini-3.1-flash-image-preview",
+    identifiers: ["gemini-2.5-flash-image"],
+  },
+  {
+    shutdownDate: "2027-05-07",
+    replacement: "gemini-3.5-flash-lite",
+    identifiers: ["gemini-3.1-flash-lite"],
+  },
+  {
+    shutdownDate: "2028-05-14",
+    replacement: "gemini-embedding-2",
+    identifiers: ["gemini-embedding-001"],
+  },
+];
+
 const modelRules = modelRows.flatMap((row) =>
   row.identifiers.map((identifier) => modelRule({ ...row, identifier })),
 );
 
+const anthropicModelRules = anthropicModelRows.flatMap((row) =>
+  row.identifiers.map((identifier) =>
+    modelRule({
+      ...row,
+      provider: "anthropic",
+      identifier,
+      migrationUrl: ANTHROPIC_MIGRATION_URL,
+    }),
+  ),
+);
+
+const googleModelRules = googleModelRows.flatMap((row) =>
+  row.identifiers.map((identifier) =>
+    modelRule({
+      ...row,
+      provider: "google",
+      identifier,
+      deadlineBasis: "earliest",
+      note:
+        `Migrate ${identifier} before Google's earliest published shutdown date, then run behavioral, latency, and cost regression tests.`,
+    }),
+  ),
+);
+
 export const DEPRECATIONS = Object.freeze(
-  [...platformRules, ...modelRules]
+  [...platformRules, ...modelRules, ...anthropicModelRules, ...googleModelRules]
     .sort(
       (left, right) =>
         left.shutdownDate.localeCompare(right.shutdownDate) ||
         left.id.localeCompare(right.id),
     )
-    .map((rule) => Object.freeze(rule)),
+    .map((rule) =>
+      Object.freeze({
+        ...rule,
+        matchers: Object.freeze(rule.matchers.map((matcher) => Object.freeze(matcher))),
+      }),
+    ),
 );
 
 export const OFFICIAL_SOURCES = Object.freeze([
   {
+    provider: "openai",
     title: "OpenAI API deprecations",
     url: DEPRECATIONS_URL,
   },
   {
+    provider: "openai",
     title: "Assistants API migration guide",
     url: ASSISTANTS_MIGRATION_URL,
   },
-]);
+  {
+    provider: "anthropic",
+    title: "Anthropic model deprecations",
+    url: ANTHROPIC_DEPRECATIONS_URL,
+  },
+  {
+    provider: "google",
+    title: "Google Gemini deprecations",
+    url: GOOGLE_DEPRECATIONS_URL,
+  },
+].map((source) => Object.freeze(source)));
 
 export function getRule(id) {
   return DEPRECATIONS.find((rule) => rule.id === id);

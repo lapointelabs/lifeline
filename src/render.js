@@ -1,4 +1,4 @@
-import { DEPRECATIONS, OFFICIAL_SOURCES } from "./catalog.js";
+import { DEPRECATIONS, OFFICIAL_SOURCES, PROVIDER_IDS } from "./catalog.js";
 import { classifyDeadline, formatCountdown } from "./deadlines.js";
 
 function groupFindings(findings) {
@@ -46,7 +46,7 @@ function summaryText(summary) {
 export function renderPretty(report, options = {}) {
   const colors = terminalColors(options.color !== false);
   const lines = [];
-  lines.push(`${colors.bold("LIFELINE")} ${colors.dim("/ OpenAI deprecation scan")}`);
+  lines.push(`${colors.bold("LIFELINE")} ${colors.dim("/ AI dependency deprecation scan")}`);
   lines.push(
     `${colors.dim("Target")} ${report.target}  ${colors.dim("·")}  ` +
       `${report.scan.filesScanned} ${plural(report.scan.filesScanned, "file")} scanned  ` +
@@ -55,13 +55,21 @@ export function renderPretty(report, options = {}) {
   lines.push("");
 
   if (report.findings.length === 0) {
-    lines.push(colors.green("✓ No deprecated OpenAI usage detected."));
+    lines.push(
+      colors.green(
+        report.scan.coverage.complete
+          ? "✓ No deprecated AI usage detected."
+          : "✓ No deprecated AI usage detected in successfully scanned files.",
+      ),
+    );
   } else {
     for (const findings of groupFindings(report.findings)) {
       const first = findings[0];
+      const basis =
+        first.deadlineBasis === "earliest" ? " · earliest published shutdown" : "";
       lines.push(
         `${severityLabel(first.severity, colors)}  ${colors.bold(first.title)}  ` +
-          `${colors.dim(`· ${formatCountdown(first.daysRemaining)} · ${first.shutdownDate}`)}`,
+          `${colors.dim(`· ${formatCountdown(first.daysRemaining)} · ${first.shutdownDate}${basis}`)}`,
       );
       lines.push(`          Replacement: ${first.replacement}`);
 
@@ -77,22 +85,25 @@ export function renderPretty(report, options = {}) {
     }
   }
 
-  if (report.scan.errors.length > 0) {
+  if (!report.scan.coverage.complete) {
     lines.push(
       colors.yellow(
-        `! ${report.scan.errors.length} ${plural(report.scan.errors.length, "path")} could not be read.`,
+        `! Coverage incomplete: ${report.scan.coverage.issues.length} ${plural(report.scan.coverage.issues.length, "path")} could not be fully scanned.`,
       ),
     );
-    for (const error of report.scan.errors.slice(0, 5)) {
-      lines.push(`  ${error.path || "."} (${error.code})`);
+    for (const issue of report.scan.coverage.issues.slice(0, 5)) {
+      const detail = issue.reason === "too_large" ? ` (${issue.size} bytes)` : ` (${issue.code})`;
+      lines.push(`  ${issue.path || "."}${detail}`);
     }
     lines.push("");
   }
 
   lines.push(
-    report.summary.total === 0
-      ? colors.bold("Result  clean")
-      : colors.bold(`Result  ${summaryText(report.summary)}`),
+    !report.scan.coverage.complete
+      ? colors.bold(`Result  incomplete · ${summaryText(report.summary)}`)
+      : report.summary.total === 0
+        ? colors.bold("Result  clean")
+        : colors.bold(`Result  ${summaryText(report.summary)}`),
   );
   lines.push(
     `${colors.dim("Evidence")} sha256:${report.integrity.digest.slice(0, 16)}…  ` +
@@ -110,7 +121,9 @@ export function renderMarkdown(report) {
     "# Lifeline deprecation report",
     "",
     report.summary.total === 0
-      ? "> **Clean:** No deprecated OpenAI usage was detected."
+      ? report.scan.coverage.complete
+        ? "> **Clean:** No deprecated AI usage was detected."
+        : "> **Incomplete:** No deprecated AI usage was detected in successfully scanned files, but some eligible paths were not scanned."
       : `> **Action required:** ${summaryText(report.summary)}.`,
     "",
     "| Field | Value |",
@@ -118,6 +131,7 @@ export function renderMarkdown(report) {
     `| Target | \`${escapeTable(report.target)}\` |`,
     `| Evaluated as of | ${report.asOf} |`,
     `| Files scanned | ${report.scan.filesScanned} |`,
+    `| Coverage | ${report.scan.coverage.complete ? "complete" : "incomplete"} |`,
     `| Affected files | ${report.summary.affectedFiles} |`,
     `| Catalog | ${report.catalog.version} |`,
     `| Evidence | \`sha256:${report.integrity.digest}\` |`,
@@ -147,6 +161,7 @@ export function renderMarkdown(report) {
         "",
         `- Severity: **${first.severity}**`,
         `- Deadline: **${first.shutdownDate}** (${formatCountdown(first.daysRemaining)})`,
+        `- Date basis: ${first.deadlineBasis === "earliest" ? "earliest published shutdown" : "scheduled shutdown"}`,
         `- Replacement: ${first.replacement}`,
         `- Guidance: ${first.guidance}`,
         `- [Official source](${first.sourceUrl})`,
@@ -165,10 +180,11 @@ export function renderMarkdown(report) {
     }
   }
 
-  if (report.scan.errors.length > 0) {
-    lines.push("## Incomplete reads", "");
-    for (const error of report.scan.errors) {
-      lines.push(`- \`${error.path || "."}\` (${error.code})`);
+  if (report.scan.coverage.issues.length > 0) {
+    lines.push("## Coverage issues", "");
+    for (const issue of report.scan.coverage.issues) {
+      const detail = issue.reason === "too_large" ? `; ${issue.size} bytes` : `; ${issue.code}`;
+      lines.push(`- \`${issue.path || "."}\` (${issue.reason}${detail})`);
     }
     lines.push("");
   }
@@ -176,7 +192,7 @@ export function renderMarkdown(report) {
   lines.push(
     "## Evidence notes",
     "",
-    "The SHA-256 digest covers the catalog version, as-of date, summary, and normalized findings. It verifies report integrity, not author identity or behavioral parity. Static analysis cannot identify values assembled entirely at runtime.",
+    "The SHA-256 digest covers scanned source contents, scan configuration and coverage, the catalog version, as-of date, summary, and complete normalized findings. It verifies the normalized evidence payload, not display-only values, author identity, or behavioral parity. Static analysis cannot identify values assembled entirely at runtime.",
     "",
     `_Generated by @lapointelabs/lifeline ${report.tool.version} at ${report.generatedAt}._`,
     "",
@@ -193,7 +209,10 @@ export function renderSarif(report) {
       name: finding.title.replace(/[^A-Za-z0-9]+/g, ""),
       shortDescription: { text: finding.title },
       fullDescription: {
-        text: `${finding.title} shuts down on ${finding.shutdownDate}. Replace with ${finding.replacement}.`,
+        text:
+          finding.deadlineBasis === "earliest"
+            ? `${finding.title} has an earliest published shutdown date of ${finding.shutdownDate}. Replace with ${finding.replacement}.`
+            : `${finding.title} shuts down on ${finding.shutdownDate}. Replace with ${finding.replacement}.`,
       },
       helpUri: finding.migrationUrl,
       help: { text: finding.guidance },
@@ -209,6 +228,7 @@ export function renderSarif(report) {
         category: finding.category,
         provider: finding.provider,
         shutdownDate: finding.shutdownDate,
+        deadlineBasis: finding.deadlineBasis,
         replacement: finding.replacement,
       },
     };
@@ -223,7 +243,10 @@ export function renderSarif(report) {
           ? "warning"
           : "note",
     message: {
-      text: `${finding.title} ${formatCountdown(finding.daysRemaining)}. Replace with ${finding.replacement}.`,
+      text:
+        finding.deadlineBasis === "earliest"
+          ? `${finding.title} has an earliest published shutdown date of ${finding.shutdownDate} (${formatCountdown(finding.daysRemaining)}). Replace with ${finding.replacement}.`
+          : `${finding.title} ${formatCountdown(finding.daysRemaining)}. Replace with ${finding.replacement}.`,
     },
     locations: [
       {
@@ -232,7 +255,8 @@ export function renderSarif(report) {
           region: {
             startLine: finding.location.line,
             startColumn: finding.location.column,
-            endColumn: finding.location.column + Math.max(1, finding.match.length),
+            endLine: finding.location.endLine,
+            endColumn: finding.location.endColumn,
           },
         },
       },
@@ -241,7 +265,11 @@ export function renderSarif(report) {
       shutdownDate: finding.shutdownDate,
       daysRemaining: finding.daysRemaining,
       replacement: finding.replacement,
+      deadlineBasis: finding.deadlineBasis,
       evidenceDigest: report.integrity.digest,
+    },
+    partialFingerprints: {
+      "lifeline/v1": finding.fingerprint,
     },
   }));
 
@@ -261,12 +289,13 @@ export function renderSarif(report) {
           },
           invocations: [
             {
-              executionSuccessful: report.scan.errors.length === 0,
+              executionSuccessful: report.scan.coverage.complete,
               properties: {
                 asOf: report.asOf,
                 catalogVersion: report.catalog.version,
                 evidenceDigest: report.integrity.digest,
                 unreadablePaths: report.scan.errors,
+                coverageIssues: report.scan.coverage.issues,
               },
             },
           ],
@@ -283,24 +312,37 @@ export function renderJson(value) {
   return JSON.stringify(value, null, 2);
 }
 
-function deadlineRows(asOf, includePast) {
+function deadlineRows(asOf, includePast, providers) {
   return DEPRECATIONS.map((rule) => ({
     ...rule,
     ...classifyDeadline(rule.shutdownDate, asOf),
-  })).filter((rule) => includePast || rule.daysRemaining >= 0);
+  })).filter(
+    (rule) =>
+      providers.includes(rule.provider) &&
+      (includePast || rule.daysRemaining >= 0),
+  );
 }
 
-export function createDeadlineReport(asOf, includePast = false) {
+export function createDeadlineReport(asOf, includePast = false, providers = []) {
+  const selectedProviders = providers.length > 0 ? [...new Set(providers)] : [...PROVIDER_IDS];
+  const unknownProviders = selectedProviders.filter(
+    (provider) => !PROVIDER_IDS.includes(provider),
+  );
+  if (unknownProviders.length > 0) {
+    throw new Error(`unknown provider: ${unknownProviders.join(", ")}`);
+  }
   return {
     schemaVersion: "lifeline.deadlines/v1",
     asOf,
     includePast,
-    deadlines: deadlineRows(asOf, includePast).map((rule) => ({
+    providers: selectedProviders,
+    deadlines: deadlineRows(asOf, includePast, selectedProviders).map((rule) => ({
       id: rule.id,
       provider: rule.provider,
       category: rule.category,
       title: rule.title,
       shutdownDate: rule.shutdownDate,
+      deadlineBasis: rule.deadlineBasis ?? "scheduled",
       daysRemaining: rule.daysRemaining,
       severity: rule.severity,
       status: rule.status,
@@ -308,14 +350,14 @@ export function createDeadlineReport(asOf, includePast = false) {
       detectable: rule.detectable,
       sourceUrl: rule.sourceUrl,
     })),
-    sources: OFFICIAL_SOURCES,
+    sources: OFFICIAL_SOURCES.filter((source) => selectedProviders.includes(source.provider)),
   };
 }
 
 export function renderDeadlinesPretty(deadlineReport, options = {}) {
   const colors = terminalColors(options.color !== false);
   const lines = [
-    `${colors.bold("LIFELINE")} ${colors.dim("/ known OpenAI shutdowns")}`,
+    `${colors.bold("LIFELINE")} ${colors.dim("/ known AI deprecation deadlines")}`,
     `${colors.dim("Evaluated as of")} ${deadlineReport.asOf}`,
     "",
   ];
@@ -331,32 +373,39 @@ export function renderDeadlinesPretty(deadlineReport, options = {}) {
     }
     lines.push(
       `  ${severityLabel(deadline.severity, colors)}  ${deadline.title}  ` +
+        `${deadline.deadlineBasis === "earliest" ? colors.dim("(earliest published)  ") : ""}` +
         `${colors.dim(`→ ${deadline.replacement}`)}`,
     );
   }
 
   if (deadlineReport.deadlines.length === 0) lines.push("No scheduled shutdowns in this catalog.");
-  lines.push("", `${colors.dim("Source")} ${OFFICIAL_SOURCES[0].url}`);
+  for (const source of deadlineReport.sources) {
+    lines.push(`${colors.dim("Source")} ${source.url}`);
+  }
   return lines.join("\n");
 }
 
 export function renderDeadlinesMarkdown(deadlineReport) {
   const lines = [
-    "# Known OpenAI shutdowns",
+    "# Known AI deprecation deadlines",
     "",
     `Evaluated as of **${deadlineReport.asOf}**.`,
     "",
-    "| Severity | Dependency | Shutdown | Remaining | Replacement | Static detection |",
-    "| --- | --- | --- | ---: | --- | --- |",
+    "| Severity | Provider | Dependency | Shutdown | Basis | Remaining | Replacement | Static detection |",
+    "| --- | --- | --- | --- | --- | ---: | --- | --- |",
   ];
   for (const deadline of deadlineReport.deadlines) {
     lines.push(
-      `| ${deadline.severity.toUpperCase()} | ${escapeTable(deadline.title)} | ${deadline.shutdownDate} | ` +
+      `| ${deadline.severity.toUpperCase()} | ${deadline.provider} | ${escapeTable(deadline.title)} | ${deadline.shutdownDate} | ${deadline.deadlineBasis} | ` +
         `${escapeTable(formatCountdown(deadline.daysRemaining))} | ${escapeTable(deadline.replacement)} | ` +
         `${deadline.detectable ? "yes" : "no"} |`,
     );
   }
-  lines.push("", `[Official OpenAI deprecation schedule](${OFFICIAL_SOURCES[0].url})`, "");
+  lines.push("");
+  for (const source of deadlineReport.sources) {
+    lines.push(`- [${source.title}](${source.url})`);
+  }
+  lines.push("");
   return lines.join("\n");
 }
 

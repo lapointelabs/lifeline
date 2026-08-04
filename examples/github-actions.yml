@@ -21,7 +21,7 @@ jobs:
       - name: Scan AI dependencies
         run: npx --yes @lapointelabs/lifeline scan . --format sarif --output lifeline.sarif --fail-on critical
       - name: Upload findings
-        if: always()
+        if: always() && hashFiles('lifeline.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: lifeline.sarif

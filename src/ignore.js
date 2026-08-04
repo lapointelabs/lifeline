@@ -39,15 +39,21 @@ const SOURCE_EXTENSIONS = new Set([
   ".cs",
   ".css",
   ".cts",
+  ".dart",
   ".env",
+  ".ex",
+  ".exs",
   ".fish",
   ".go",
+  ".gradle",
   ".graphql",
   ".gql",
+  ".groovy",
   ".h",
   ".hpp",
   ".html",
   ".ini",
+  ".ipynb",
   ".java",
   ".js",
   ".json",
@@ -55,17 +61,21 @@ const SOURCE_EXTENSIONS = new Set([
   ".jsx",
   ".kt",
   ".kts",
+  ".lua",
   ".mjs",
   ".mts",
   ".php",
   ".properties",
   ".ps1",
   ".py",
+  ".r",
   ".rb",
   ".rs",
+  ".scala",
   ".sh",
   ".sql",
   ".svelte",
+  ".swift",
   ".tf",
   ".tfvars",
   ".toml",
@@ -97,8 +107,13 @@ function globBody(pattern) {
     const character = pattern[index];
     if (character === "*") {
       if (pattern[index + 1] === "*") {
-        body += ".*";
-        index += 1;
+        if (pattern[index + 2] === "/") {
+          body += "(?:.*/)?";
+          index += 2;
+        } else {
+          body += ".*";
+          index += 1;
+        }
       } else {
         body += "[^/]*";
       }
@@ -116,19 +131,25 @@ export function compileIgnorePatterns(patterns = []) {
     .map((value) => value.trim())
     .filter((value) => value && !value.startsWith("#"))
     .map((raw) => {
-      const pattern = normalize(raw).replace(/\/$/, "");
+      const negated = raw.startsWith("!");
+      const normalized = normalize(negated ? raw.slice(1) : raw);
+      const pattern = normalized.replace(/^\//, "").replace(/\/$/, "");
       const body = globBody(pattern);
-      const source = pattern.includes("/")
+      const source = normalized.startsWith("/") || pattern.includes("/")
         ? `^${body}(?:$|/)`
         : `(?:^|/)${body}(?:$|/)`;
-      return { raw, regex: new RegExp(source) };
+      return { raw, negated, regex: new RegExp(source) };
     });
 }
 
 export function isIgnored(relativePath, basename, patterns = []) {
   if (DEFAULT_IGNORED_DIRECTORIES.has(basename)) return true;
   const normalized = normalize(relativePath);
-  return patterns.some(({ regex }) => regex.test(normalized));
+  let ignored = false;
+  for (const { regex, negated } of patterns) {
+    if (regex.test(normalized)) ignored = !negated;
+  }
+  return ignored;
 }
 
 export function isScannableFile(filename, includeDocs = false) {

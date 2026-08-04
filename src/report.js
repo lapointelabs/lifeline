@@ -11,6 +11,10 @@ function toPosix(value) {
 function summarize(findings) {
   const uniqueRules = new Set(findings.map((finding) => finding.ruleId));
   const affectedFiles = new Set(findings.map((finding) => finding.location.path));
+  const byProvider = {};
+  for (const provider of [...new Set(findings.map((finding) => finding.provider))].sort()) {
+    byProvider[provider] = findings.filter((finding) => finding.provider === provider).length;
+  }
   return {
     total: findings.length,
     critical: findings.filter((finding) => finding.severity === "critical").length,
@@ -18,6 +22,7 @@ function summarize(findings) {
     notice: findings.filter((finding) => finding.severity === "notice").length,
     affectedFiles: affectedFiles.size,
     uniqueDeprecations: uniqueRules.size,
+    byProvider,
   };
 }
 
@@ -27,9 +32,11 @@ function evidencePayload(scanResult, summary) {
     catalogVersion: scanResult.catalogVersion,
     asOf: scanResult.asOf,
     sourceDigest: scanResult.sourceDigest,
+    configuration: scanResult.configuration,
     scan: {
       filesScanned: scanResult.stats.filesScanned,
       filesSkipped: scanResult.stats.filesSkipped,
+      coverage: scanResult.coverage,
       errors: scanResult.errors.map((error) => ({
         path: toPosix(error.path),
         code: error.code,
@@ -40,17 +47,25 @@ function evidencePayload(scanResult, summary) {
       ruleId: finding.ruleId,
       provider: finding.provider,
       category: finding.category,
+      title: finding.title,
       severity: finding.severity,
       status: finding.status,
       shutdownDate: finding.shutdownDate,
+      deadlineBasis: finding.deadlineBasis,
       daysRemaining: finding.daysRemaining,
       replacement: finding.replacement,
+      guidance: finding.guidance,
+      sourceUrl: finding.sourceUrl,
+      migrationUrl: finding.migrationUrl,
       confidence: finding.confidence,
+      fingerprint: finding.fingerprint,
       match: finding.match,
       location: {
         path: toPosix(finding.location.path),
         line: finding.location.line,
         column: finding.location.column,
+        endLine: finding.location.endLine,
+        endColumn: finding.location.endColumn,
       },
     })),
   };
@@ -78,6 +93,8 @@ export function createReport(scanResult, options = {}) {
     scan: {
       ...scanResult.stats,
       sourceDigest: scanResult.sourceDigest,
+      configuration: scanResult.configuration,
+      coverage: scanResult.coverage,
       errors: scanResult.errors,
     },
     findings: scanResult.findings,
@@ -85,7 +102,7 @@ export function createReport(scanResult, options = {}) {
       algorithm: "sha256",
       digest,
       covers:
-        "scanned source contents, catalog version, as-of date, scan coverage, summary, and normalized findings",
+        "scanned source contents, scan configuration and coverage, catalog version, as-of date, summary, and complete normalized findings",
     },
   };
 }
@@ -95,6 +112,8 @@ export function verifyReportIntegrity(report) {
     catalogVersion: report.catalog.version,
     asOf: report.asOf,
     sourceDigest: report.scan.sourceDigest,
+    configuration: report.scan.configuration,
+    coverage: report.scan.coverage,
     stats: {
       filesScanned: report.scan.filesScanned,
       filesSkipped: report.scan.filesSkipped,

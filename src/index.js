@@ -1,4 +1,11 @@
-export { CATALOG_UPDATED_AT, CATALOG_VERSION, DEPRECATIONS } from "./catalog.js";
+export {
+  CATALOG_UPDATED_AT,
+  CATALOG_VERSION,
+  DEPRECATIONS,
+  OFFICIAL_SOURCES,
+  PROVIDERS,
+  PROVIDER_IDS,
+} from "./catalog.js";
 export {
   classifyDeadline,
   daysUntil,

@@ -2,7 +2,7 @@
 
 Find AI APIs and models that will break before they break production.
 
-Lifeline is a local-first repository scanner for dated AI platform deprecations. It identifies the file and line using a deprecated OpenAI model or API, shows the shutdown deadline and replacement, and produces an integrity-addressed report suitable for CI or a migration handoff.
+Lifeline is a local-first repository scanner for dated AI platform deprecations. It identifies the file and line using a deprecated model or API, shows the shutdown deadline and replacement, and produces an integrity-addressed report suitable for CI or a migration handoff.
 
 ```bash
 npx @lapointelabs/lifeline scan .
@@ -12,12 +12,16 @@ No account, API key, source upload, or configuration is required. The scanner ha
 
 ## What it catches
 
-- Assistants API and Threads usage before the August 26, 2026 shutdown.
-- Reusable Prompt, Evals platform, and Videos API calls.
-- Deprecated and recently retired OpenAI model identifiers.
-- Current scheduled audio, realtime, image, GPT, o-series, and Sora retirements.
+- OpenAI API and platform shutdowns, including Assistants, reusable prompts, Evals, Videos, and self-serve fine-tuning changes.
+- OpenAI model retirements across GPT, o-series, audio, realtime, image, Sora, and specialized models.
+- Anthropic Claude model retirements on Anthropic-operated platforms.
+- Google Gemini API model shutdowns across Gemini, embeddings, Imagen, Veo, and robotics.
 
-Every rule links to the official [OpenAI deprecation schedule](https://developers.openai.com/api/docs/deprecations). Assistants findings also link to the official [migration guide](https://developers.openai.com/api/docs/assistants/migration).
+Every rule links to an official provider source: [OpenAI](https://developers.openai.com/api/docs/deprecations), [Anthropic](https://platform.claude.com/docs/en/about-claude/model-deprecations), or [Google Gemini](https://ai.google.dev/gemini-api/docs/deprecations). Google dates are preserved as earliest published shutdown dates rather than represented as guaranteed final dates.
+
+Provider schedules are platform-specific. Anthropic rules do not claim Amazon Bedrock or Google Cloud retirement dates, and Google Gemini API rules do not claim Vertex AI dates.
+
+See [provider coverage](docs/providers.md) for the platform boundary and date semantics behind each catalog.
 
 ## Commands
 
@@ -45,6 +49,13 @@ List known deadlines without scanning source code:
 lifeline deadlines
 ```
 
+Limit a scan or deadline list to selected providers:
+
+```bash
+lifeline scan . --provider anthropic --provider google
+lifeline deadlines --provider openai
+```
+
 Use a fixed date for a reproducible audit:
 
 ```bash
@@ -60,18 +71,29 @@ lifeline scan . --as-of 2026-08-04 --format json
 | `--fail-on <critical\|warning\|notice\|never>` | Set the CI failure threshold. Default: `critical`. |
 | `--as-of <YYYY-MM-DD>` | Evaluate deadlines from a fixed date. |
 | `--include-docs` | Include Markdown and other prose files. |
+| `--provider <openai\|anthropic\|google>` | Limit the catalog to a provider; may be repeated. Default: all providers. |
 | `--ignore <glob>` | Add an ignore pattern; may be repeated. |
 | `--max-file-size <size>` | Maximum file size, such as `750kb` or `2mb`. Default: `1mb`. |
+| `--allow-incomplete` | Do not return exit code 2 when eligible paths could not be scanned. |
 | `--no-color` | Disable ANSI color in terminal output. |
 | `--quiet, -q` | When writing a file, suppress the terminal summary. |
 
-Lifeline skips common generated, dependency, cache, and VCS directories. It also reads optional patterns from `.lifelineignore` at the scan root.
+Lifeline skips common generated, dependency, cache, and VCS directories. It also reads optional glob patterns from `.lifelineignore` at the scan root. Later `!` patterns can re-include files.
+
+Suppress an intentional occurrence inline with `lifeline-ignore`, or suppress the following line with `lifeline-ignore-next-line`:
+
+```js
+// lifeline-ignore-next-line -- retained for a compatibility fixture
+const retiredModel = "gpt-4-0613";
+```
+
+Oversized or unreadable eligible files make coverage incomplete and return exit code 2 by default. Reports include the affected paths and skip-reason counts. Expected exclusions such as ignored directories, unsupported file types, symlinks, and binary files do not make coverage incomplete.
 
 ## Evidence reports
 
-JSON and Markdown reports include a SHA-256 evidence digest. The digest covers the scanned source contents and relative paths, scan coverage and errors, scan date, catalog version, matches, deadlines, and replacements. Volatile values such as runtime duration and absolute paths are excluded, so scanning the same content with the same Lifeline catalog and `--as-of` date produces the same digest while distinct repositories receive distinct evidence.
+JSON and Markdown reports include a SHA-256 evidence digest. The digest covers scanned source contents and relative paths, provider and scan configuration, coverage issues, catalog version, scan date, matches, deadlines, replacements, migration guidance, official source URLs, and stable finding fingerprints. Volatile values such as runtime duration and absolute paths are excluded, so scanning the same content with the same catalog and `--as-of` date produces the same digest while distinct repositories receive distinct evidence.
 
-The digest proves report integrity; it is not an identity signature or a guarantee that semantic behavior is unchanged. Static matching also cannot discover model names assembled entirely at runtime.
+The digest verifies the normalized evidence payload; it intentionally excludes display-only values such as generation time, runtime duration, and absolute target paths. It is not an identity signature or a guarantee that semantic behavior is unchanged.
 
 ## CI
 
@@ -94,6 +116,8 @@ const report = createReport(result);
 console.log(report.summary);
 ```
 
+Select providers through the library API with `providers: ["anthropic", "google"]`.
+
 ## Development
 
 ```bash
@@ -104,6 +128,8 @@ npm run release:check
 
 ## Scope
 
-Version 0.1 intentionally begins with OpenAI because the Assistants API deadline is urgent and the official migration has several non-equivalent runtime behaviors. The catalog is structured for additional providers, but Lifeline does not claim coverage it has not implemented.
+Version 0.2 covers the direct OpenAI API, Anthropic-operated Claude platforms, and the Gemini Developer API. Provider-hosted variants such as Azure OpenAI, Amazon Bedrock, and Vertex AI can use different model identifiers and retirement schedules; Lifeline does not apply one provider's dates to another provider's platform.
+
+Lifeline performs static matching. It cannot discover model names assembled entirely at runtime, and a literal identifier in executable source may still be a test fixture or compatibility reference. Use ignore patterns and inline suppressions for reviewed exceptions.
 
 MIT © Lapointe Labs

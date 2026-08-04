@@ -24,7 +24,7 @@ async function riskyReport() {
 
 test("pretty output gives a concise migration handoff", async () => {
   const output = renderPretty(await riskyReport(), { color: false });
-  assert.match(output, /LIFELINE \/ OpenAI deprecation scan/);
+  assert.match(output, /LIFELINE \/ AI dependency deprecation scan/);
   assert.match(output, /OpenAI Assistants API/);
   assert.match(output, /shuts down in 22 days/);
   assert.match(output, /3 critical · 0 warning · 0 notice/);
@@ -48,6 +48,7 @@ test("SARIF output is valid and maps critical findings to errors", async () => {
     sarif.runs[0].results[0].locations[0].physicalLocation.artifactLocation.uri,
     "src/agent.ts",
   );
+  assert.match(sarif.runs[0].results[0].partialFingerprints["lifeline/v1"], /^[a-f0-9]{64}$/);
 });
 
 test("deadline report includes non-detectable platform deadlines", () => {
@@ -56,5 +57,19 @@ test("deadline report includes non-detectable platform deadlines", () => {
     (deadline) => deadline.id === "openai-agent-builder",
   );
   assert.equal(agentBuilder.detectable, false);
-  assert.match(renderDeadlinesMarkdown(report), /Known OpenAI shutdowns/);
+  assert.match(renderDeadlinesMarkdown(report), /Known AI deprecation deadlines/);
+  assert.ok(report.deadlines.some((deadline) => deadline.provider === "anthropic"));
+  assert.ok(report.deadlines.some((deadline) => deadline.provider === "google"));
+});
+
+test("deadline reports can be limited to one provider", () => {
+  const report = createDeadlineReport("2026-08-04", false, ["anthropic"]);
+  assert.deepEqual(report.providers, ["anthropic"]);
+  assert.ok(report.deadlines.length > 0);
+  assert.ok(report.deadlines.every((deadline) => deadline.provider === "anthropic"));
+  assert.ok(report.sources.every((source) => source.provider === "anthropic"));
+  assert.throws(
+    () => createDeadlineReport("2026-08-04", false, ["unknown"]),
+    /unknown provider/,
+  );
 });

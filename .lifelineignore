@@ -1,0 +1,3 @@
+# Lifeline's catalog and fixtures intentionally contain retired identifiers.
+src/catalog.js
+test/**

@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { PROVIDER_IDS } from "./catalog.js";
 import { meetsThreshold, parseDateOnly, todayUtc } from "./deadlines.js";
 import { createReport } from "./report.js";
 import {
@@ -32,14 +33,17 @@ Scan options:
       --fail-on <severity>    critical, warning, notice, or never
       --as-of <YYYY-MM-DD>    evaluate deadlines from a fixed date
       --include-docs          scan Markdown and other prose files
+      --provider <provider>   openai, anthropic, or google; may be repeated
       --ignore <glob>         add an ignore pattern; may be repeated
       --max-file-size <size>  maximum text file size (default: 1mb)
+      --allow-incomplete      do not fail when eligible files cannot be scanned
       --no-color              disable ANSI colors
   -q, --quiet                 suppress the summary when using --output
 
 Deadline options:
   -f, --format <format>       pretty, json, or markdown
       --as-of <YYYY-MM-DD>    evaluate deadlines from a fixed date
+      --provider <provider>   limit deadlines to a provider; may be repeated
       --all                   include deadlines that have already passed
 
 Global options:
@@ -50,6 +54,7 @@ Examples:
   lifeline scan .
   lifeline scan . --format markdown --output lifeline-report.md
   lifeline scan . --format sarif --output lifeline.sarif
+  lifeline scan . --provider anthropic --provider google
   lifeline deadlines --as-of 2026-08-04
 `;
 
@@ -95,10 +100,12 @@ function parseArgs(args) {
     failOn: "critical",
     asOf: todayUtc(),
     includeDocs: false,
+    providers: [],
     ignore: [],
     color: true,
     quiet: false,
     includePast: false,
+    allowIncomplete: false,
   };
   let targetSet = false;
 
@@ -119,6 +126,10 @@ function parseArgs(args) {
     }
     if (argument === "--all") {
       options.includePast = true;
+      continue;
+    }
+    if (argument === "--allow-incomplete") {
+      options.allowIncomplete = true;
       continue;
     }
 
@@ -153,6 +164,18 @@ function parseArgs(args) {
       index += result.consumed;
       continue;
     }
+    if (longName === "--provider") {
+      const result = optionValue(args, index, "--provider");
+      const providers = result.value
+        .toLowerCase()
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      if (providers.length === 0) throw new UsageError("--provider requires a value");
+      options.providers.push(...providers);
+      index += result.consumed;
+      continue;
+    }
     if (longName === "--max-file-size") {
       const result = optionValue(args, index, "--max-file-size");
       options.maxFileSize = parseSize(result.value);
@@ -177,6 +200,15 @@ function parseArgs(args) {
   if (!THRESHOLDS.has(options.failOn)) {
     throw new UsageError(`unsupported --fail-on threshold: ${options.failOn}`);
   }
+  const unknownProviders = options.providers.filter(
+    (provider) => !PROVIDER_IDS.includes(provider),
+  );
+  if (unknownProviders.length > 0) {
+    throw new UsageError(
+      `unsupported provider: ${unknownProviders.join(", ")}; expected ${PROVIDER_IDS.join(", ")}`,
+    );
+  }
+  options.providers = [...new Set(options.providers)];
   if (command === "deadlines" && options.output) {
     throw new UsageError("--output is currently available for scans only");
   }
@@ -224,7 +256,11 @@ export async function main(args, dependencies = {}) {
 
   const color = shouldUseColor(options, stdout, env);
   if (options.action === "deadlines") {
-    const deadlineReport = createDeadlineReport(options.asOf, options.includePast);
+    const deadlineReport = createDeadlineReport(
+      options.asOf,
+      options.includePast,
+      options.providers,
+    );
     const rendered =
       options.format === "json"
         ? renderJson(deadlineReport)
@@ -235,14 +271,24 @@ export async function main(args, dependencies = {}) {
     return 0;
   }
 
+  if (
+    options.output &&
+    path.resolve(cwd, options.target) === path.resolve(cwd, options.output)
+  ) {
+    output(stderr, "lifeline: --output cannot overwrite the scan target");
+    return 2;
+  }
+
   let scanResult;
   try {
     scanResult = await scan(options.target, {
       cwd,
       asOf: options.asOf,
       includeDocs: options.includeDocs,
+      providers: options.providers,
       ignore: options.ignore,
       maxFileSize: options.maxFileSize,
+      excludePaths: options.output ? [path.resolve(cwd, options.output)] : [],
     });
   } catch (error) {
     output(stderr, `lifeline: ${error.message}`);
@@ -261,7 +307,8 @@ export async function main(args, dependencies = {}) {
           stdout,
           `Wrote ${path.relative(cwd, absoluteOutput) || path.basename(absoluteOutput)} — ` +
             `${report.summary.critical} critical, ${report.summary.warning} warning, ` +
-            `${report.summary.notice} notice.`,
+            `${report.summary.notice} notice` +
+            `${report.scan.coverage.complete ? "." : "; coverage incomplete."}`,
         );
       }
     } catch (error) {
@@ -271,6 +318,8 @@ export async function main(args, dependencies = {}) {
   } else {
     output(stdout, rendered);
   }
+
+  if (!report.scan.coverage.complete && !options.allowIncomplete) return 2;
 
   return report.findings.some((finding) => meetsThreshold(finding.severity, options.failOn))
     ? 1

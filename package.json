@@ -1,7 +1,7 @@
 {
   "name": "@lapointelabs/lifeline",
-  "version": "0.1.0",
-  "description": "Find AI APIs and models that will break before they break production.",
+  "version": "0.2.0",
+  "description": "Find deprecated AI APIs and models before they break production.",
   "type": "module",
   "bin": {
     "lifeline": "bin/lifeline.js"
@@ -20,7 +20,7 @@
   ],
   "scripts": {
     "check": "node scripts/check-syntax.js",
-    "test": "node --test test/cli.test.js test/render.test.js test/scanner.test.js",
+    "test": "node --test test/catalog.test.js test/cli.test.js test/ignore.test.js test/render.test.js test/scanner.test.js",
     "test:cli": "node --test test/cli.test.js",
     "release:check": "node scripts/release-check.js",
     "prepublishOnly": "npm run check && npm test"
@@ -30,6 +30,10 @@
   },
   "keywords": [
     "openai",
+    "anthropic",
+    "claude",
+    "gemini",
+    "google-ai",
     "deprecation",
     "migration",
     "responses-api",
