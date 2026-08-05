@@ -1,7 +1,7 @@
 {
   "name": "@lapointelabs/lifeline",
   "version": "0.2.0",
-  "description": "Find deprecated AI APIs and models before they break production.",
+  "description": "AI API and model deprecation scanner for OpenAI, Claude, and Gemini — find breakages before they hit production.",
   "type": "module",
   "bin": {
     "lifeline": "bin/lifeline.js"
@@ -29,16 +29,21 @@
     "node": ">=20.1"
   },
   "keywords": [
-    "openai",
+    "ai",
     "anthropic",
+    "assistants-api",
+    "ci",
     "claude",
+    "cli",
+    "coding-agents",
+    "deprecation",
     "gemini",
     "google-ai",
-    "deprecation",
+    "llm",
     "migration",
+    "openai",
     "responses-api",
-    "assistants-api",
-    "ci"
+    "static-analysis"
   ],
   "repository": {
     "type": "git",

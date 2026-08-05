@@ -1,8 +1,8 @@
-# Lifeline
+# AI API and model deprecation scanner
 
-Find AI APIs and models that will break before they break production.
+An AI API and model deprecation scanner for OpenAI, Claude, and Gemini. Lifeline finds deprecated models and APIs that will break before they break production.
 
-Lifeline is a local-first repository scanner for dated AI platform deprecations. It identifies the file and line using a deprecated model or API, shows the shutdown deadline and replacement, and produces an integrity-addressed report suitable for CI or a migration handoff.
+It is a local-first repository scanner for dated AI platform deprecations. It identifies the file and line using a deprecated model or API, shows the shutdown deadline and replacement, and produces an integrity-addressed report suitable for CI or a migration handoff.
 
 ```bash
 npx @lapointelabs/lifeline scan .
